@@ -27,6 +27,7 @@ import path, { basename, dirname, extname } from 'node:path';
 import type { DeepRequired } from 'ts-essentials';
 import type { BaseHlsSessionOptions } from './BaseHlsSession.js';
 import { BaseHlsSession } from './BaseHlsSession.js';
+import { MasterPlaylistGenerator } from './MasterPlaylistGenerator.js';
 import type { HlsPlaylistFilterOptions } from './HlsPlaylistMutator.js';
 import { HlsPlaylistMutator } from './HlsPlaylistMutator.js';
 
@@ -55,6 +56,7 @@ export class HlsSession extends BaseHlsSession<HlsSessionOptions> {
   #lastDelete: Dayjs = dayjs().subtract(1, 'year');
   #isFirstTranscode = true;
   #subtitleSegmentStartNumber = 0;
+  #masterPlaylistWritten = false;
 
   constructor(
     channel: ChannelOrmWithTranscodeConfig,
@@ -263,8 +265,11 @@ export class HlsSession extends BaseHlsSession<HlsSessionOptions> {
         getBooleanEnvVar(TUNARR_ENV_VARS.WEBVTT_SIDECAR_ENABLED, false) &&
         this.channel.subtitlesEnabled
       ) {
-        this.#subtitleSegmentStartNumber =
-          await this.getNextSubtitleSegmentNumber();
+        const [subtitleSegmentStartNumber, _] = await Promise.all([
+          this.getNextSubtitleSegmentNumber(),
+          this.writeMasterPlaylistOnce(),
+        ]);
+        this.#subtitleSegmentStartNumber = subtitleSegmentStartNumber;
       }
       return waitResult;
     });
@@ -475,6 +480,35 @@ export class HlsSession extends BaseHlsSession<HlsSessionOptions> {
 
     const max = maxBy(map(numbers, 'seq'));
     return isDefined(max) ? max + 1 : 0;
+  }
+
+  async getMasterPlaylist(): Promise<string | undefined> {
+    const masterPlaylistPath = path.join(this._workingDirectory, 'master.m3u8');
+    if (!(await fileExists(masterPlaylistPath))) return undefined;
+    return fs.readFile(masterPlaylistPath, { encoding: 'utf-8' });
+  }
+
+  private async writeMasterPlaylistOnce(): Promise<void> {
+    if (this.#masterPlaylistWritten) return;
+    if (!(await fileExists(this._subtitlePlaylistPath))) return;
+
+    const language =
+      this.channel.subtitlePreferences?.[0]?.languageCode ?? 'und';
+    const bandwidth =
+      (this.channel.transcodeConfig.videoBitRate +
+        this.channel.transcodeConfig.audioBitRate) *
+      1000;
+
+    const content = new MasterPlaylistGenerator().generate({
+      channelId: this.channel.uuid,
+      sessionType: this.sessionType,
+      language,
+      bandwidth,
+    });
+
+    const masterPlaylistPath = path.join(this._workingDirectory, 'master.m3u8');
+    await fs.writeFile(masterPlaylistPath, content, { encoding: 'utf-8' });
+    this.#masterPlaylistWritten = true;
   }
 
   private extractSubtitleSegments(file: string) {

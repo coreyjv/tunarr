@@ -6,6 +6,7 @@ import { TruthyQueryParam } from '@/types/schemas.js';
 import type { RouterPluginAsyncCallback } from '@/types/serverType.js';
 import type { Maybe } from '@/types/util.js';
 import { LoggerFactory } from '@/util/logging/LoggerFactory.js';
+import { TUNARR_ENV_VARS, getBooleanEnvVar } from '@/util/env.js';
 import { makeLocalUrl } from '@/util/serverUtil.js';
 import fastifyStatic from '@fastify/static';
 import type { StreamConnectionDetails } from '@tunarr/types/api';
@@ -344,6 +345,21 @@ export const streamApi: RouterPluginAsyncCallback = async (fastify) => {
             .then((result) =>
               result.mapAsync(async (session) => {
                 session.recordHeartbeat(req.ip);
+
+                if (
+                  getBooleanEnvVar(
+                    TUNARR_ENV_VARS.WEBVTT_SIDECAR_ENABLED,
+                    false,
+                  )
+                ) {
+                  const masterPlaylist = await session.getMasterPlaylist();
+                  if (masterPlaylist) {
+                    return res
+                      .type('application/vnd.apple.mpegurl')
+                      .send(masterPlaylist);
+                  }
+                }
+
                 const playlistResult = await session.trimPlaylist();
 
                 if (playlistResult.isFailure()) {
