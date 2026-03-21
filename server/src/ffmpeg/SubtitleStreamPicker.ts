@@ -14,6 +14,7 @@ import {
 import { fileExists } from '../util/fsUtil.ts';
 import { LoggerFactory } from '../util/logging/LoggerFactory.ts';
 import { getSubtitleCacheFilePath } from '../util/subtitles.ts';
+import { LanguageService } from '../services/LanguageService.ts';
 
 export class SubtitleStreamPicker {
   private static logger = LoggerFactory.child({
@@ -81,8 +82,11 @@ export class SubtitleStreamPicker {
 
       // Try to find a match
       for (const stream of orderedStreams) {
-        // TODO: map a present 2 letter code to its 3 letter code and check that.
-        if (stream.languageCodeISO6392 !== pref.languageCode) {
+        if (
+          stream.languageCodeISO6392 &&
+          LanguageService.getAlpha3TCode(stream.languageCodeISO6392) !==
+            pref.languageCode
+        ) {
           this.logger.debug(
             'Skipping subtitle index %d, not a language match',
             stream.index ?? -1,
